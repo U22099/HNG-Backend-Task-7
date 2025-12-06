@@ -1,5 +1,6 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { OpenRouterService } from './openrouter.service';
 import { TextExtractionService } from './text-extraction.service';
 import { S3Service } from './s3.service';
 
@@ -7,6 +8,7 @@ import { S3Service } from './s3.service';
 export class DocumentsService {
   constructor(
     private prisma: PrismaService,
+    private openRouterService: OpenRouterService,
     private textExtractionService: TextExtractionService,
     private s3Service: S3Service,
   ) {}
@@ -29,7 +31,6 @@ export class DocumentsService {
 
     try {
       const { key } = await this.s3Service.uploadFile(file);
-
 
       const extractedText = await this.textExtractionService.extractText(
         file.buffer,
@@ -56,6 +57,48 @@ export class DocumentsService {
     } catch (error) {
       throw new BadRequestException(
         `Upload failed: ${error.message}`,
+      );
+    }
+  }
+
+  async analyzeDocument(id: string) {
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    if (!document.extractedText) {
+      throw new BadRequestException(
+        'No extracted text found for this document',
+      );
+    }
+
+    try {
+      const analysis = await this.openRouterService.analyzeDocument(
+        document.extractedText,
+      );
+
+      const updated = await this.prisma.document.update({
+        where: { id },
+        data: {
+          summary: analysis.summary,
+          docType: analysis.docType,
+          metadata: JSON.stringify(analysis.attributes),
+        },
+      });
+
+      return {
+        id: updated.id,
+        summary: updated.summary,
+        docType: updated.docType,
+        attributes: analysis.attributes,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        `Analysis failed: ${error.message}`,
       );
     }
   }

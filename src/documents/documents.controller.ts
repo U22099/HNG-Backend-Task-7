@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Param,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -20,5 +21,10 @@ export class DocumentsController {
     }
 
     return this.documentsService.uploadDocument(file);
+  }
+
+  @Post(':id/analyze')
+  async analyzeDocument(@Param('id') id: string) {
+    return this.documentsService.analyzeDocument(id);
   }
 }
