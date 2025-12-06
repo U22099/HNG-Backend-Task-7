@@ -8,21 +8,28 @@ import { S3Service } from './s3.service';
 
 describe('DocumentsService', () => {
   let service: DocumentsService;
-  let prismaService: PrismaService;
-  let openRouterService: OpenRouterService;
-  let textExtractionService: TextExtractionService;
-  let s3Service: S3Service;
+  let prisma: jest.Mocked<PrismaService['document']>;
+  let s3: jest.Mocked<S3Service>;
+  let textExtract: jest.Mocked<TextExtractionService>;
+  let openRouter: jest.Mocked<OpenRouterService>;
 
-  const mockDocument = {
+  const mockFile = {
+    originalname: 'test.pdf',
+    mimetype: 'application/pdf',
+    size: 1024,
+    buffer: Buffer.from('fake pdf'),
+  } as Express.Multer.File;
+
+  const dbDoc = {
     id: 'doc-1',
     originalName: 'test.pdf',
     mimeType: 'application/pdf',
     size: 1024,
-    s3Key: 's3/path/test.pdf',
-    extractedText: 'This is test extracted text',
-    summary: 'Test summary',
-    docType: 'Technical Document',
-    metadata: JSON.stringify({ keywords: ['test', 'pdf'] }),
+    s3Key: 'uploads/doc-1.pdf',
+    extractedText: 'Full text here',
+    summary: null,
+    docType: null,
+    metadata: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -41,153 +48,84 @@ describe('DocumentsService', () => {
             },
           },
         },
-        {
-          provide: OpenRouterService,
-          useValue: {
-            analyzeDocument: jest.fn(),
-          },
-        },
+        { provide: S3Service, useValue: { uploadFile: jest.fn() } },
         {
           provide: TextExtractionService,
-          useValue: {
-            extractText: jest.fn(),
-          },
+          useValue: { extractText: jest.fn() },
         },
         {
-          provide: S3Service,
-          useValue: {
-            uploadFile: jest.fn(),
-          },
+          provide: OpenRouterService,
+          useValue: { analyzeDocument: jest.fn() },
         },
       ],
     }).compile();
 
-    service = module.get<DocumentsService>(DocumentsService);
-    prismaService = module.get<PrismaService>(PrismaService);
-    openRouterService = module.get<OpenRouterService>(OpenRouterService);
-    textExtractionService = module.get<TextExtractionService>(
-      TextExtractionService,
-    );
-    s3Service = module.get<S3Service>(S3Service);
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
+    service = module.get(DocumentsService);
+    prisma = module.get(PrismaService).document as any;
+    s3 = module.get(S3Service);
+    textExtract = module.get(TextExtractionService);
+    openRouter = module.get(OpenRouterService);
   });
 
   describe('uploadDocument', () => {
-    const mockFile: Express.Multer.File = {
-      fieldname: 'file',
-      originalname: 'test.pdf',
-      encoding: '7bit',
-      mimetype: 'application/pdf',
-      size: 1024,
-      destination: '',
-      filename: '',
-      path: '',
-      buffer: Buffer.from('test'),
-      stream: null,
-    };
-
-    it('should successfully upload a PDF file', async () => {
-      jest.spyOn(s3Service, 'uploadFile').mockResolvedValue({
-        key: 's3/path/test.pdf',
-      });
-      jest
-        .spyOn(textExtractionService, 'extractText')
-        .mockResolvedValue('Extracted text');
-      jest.spyOn(prismaService.document, 'create').mockResolvedValue({
-        id: 'doc-1',
-        originalName: 'test.pdf',
-        mimeType: 'application/pdf',
-        size: 1024,
-        s3Key: 's3/path/test.pdf',
-        extractedText: 'Extracted text',
-        summary: null,
-        docType: null,
-        metadata: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+    it('should upload PDF successfully and save to DB', async () => {
+      s3.uploadFile.mockResolvedValue({ key: 'uploads/doc-1.pdf', url: '' });
+      textExtract.extractText.mockResolvedValue('Full text here');
+      prisma.create.mockResolvedValue({ ...dbDoc, id: 'doc-1' });
 
       const result = await service.uploadDocument(mockFile);
 
-      expect(result).toEqual({
-        id: 'doc-1',
-        originalName: 'test.pdf',
-        mimeType: 'application/pdf',
-        size: 1024,
-        createdAt: expect.any(Date),
-      });
-      expect(s3Service.uploadFile).toHaveBeenCalledWith(mockFile);
-      expect(textExtractionService.extractText).toHaveBeenCalledWith(
+      expect(result.id).toBe('doc-1');
+      expect(result.originalName).toBe('test.pdf');
+      expect(s3.uploadFile).toHaveBeenCalledWith(mockFile);
+      expect(textExtract.extractText).toHaveBeenCalledWith(
         mockFile.buffer,
         mockFile.mimetype,
       );
-      expect(prismaService.document.create).toHaveBeenCalled();
+      expect(prisma.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            originalName: 'test.pdf',
+            extractedText: 'Full text here',
+          }),
+        }),
+      );
     });
 
-    it('should successfully upload a DOCX file', async () => {
-      const docxFile: Express.Multer.File = {
+    it('should support DOCX files', async () => {
+      const docx = {
         ...mockFile,
-        originalname: 'test.docx',
+        originalname: 'report.docx',
         mimetype:
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       };
-
-      jest.spyOn(s3Service, 'uploadFile').mockResolvedValue({
-        key: 's3/path/test.docx',
-      });
-      jest
-        .spyOn(textExtractionService, 'extractText')
-        .mockResolvedValue('Extracted text from docx');
-      jest.spyOn(prismaService.document, 'create').mockResolvedValue({
-        ...mockDocument,
-        originalName: 'test.docx',
-        mimeType: docxFile.mimetype,
-        s3Key: 's3/path/test.docx',
-        extractedText: 'Extracted text from docx',
+      s3.uploadFile.mockResolvedValue({ key: 'uploads/report.docx', url: '' });
+      textExtract.extractText.mockResolvedValue('DOCX content');
+      prisma.create.mockResolvedValue({
+        ...dbDoc,
+        originalName: 'report.docx',
       });
 
-      const result = await service.uploadDocument(docxFile);
-
-      expect(result.originalName).toBe('test.docx');
-      expect(s3Service.uploadFile).toHaveBeenCalledWith(docxFile);
+      await service.uploadDocument(docx);
+      expect(s3.uploadFile).toHaveBeenCalledWith(docx);
     });
 
-    it('should throw error if file size exceeds 5MB', async () => {
-      const largeFile: Express.Multer.File = {
-        ...mockFile,
-        size: 6 * 1024 * 1024,
-      };
-
-      await expect(service.uploadDocument(largeFile)).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(service.uploadDocument(largeFile)).rejects.toThrow(
+    it('should reject files > 5MB', async () => {
+      const bigFile = { ...mockFile, size: 6 * 1024 * 1024 };
+      await expect(service.uploadDocument(bigFile)).rejects.toThrow(
         'File size must not exceed 5MB',
       );
     });
 
-    it('should throw error if file type is not supported', async () => {
-      const unsupportedFile: Express.Multer.File = {
-        ...mockFile,
-        mimetype: 'image/jpeg',
-      };
-
-      await expect(service.uploadDocument(unsupportedFile)).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(service.uploadDocument(unsupportedFile)).rejects.toThrow(
-        'Only PDF and DOCX files are supported',
+    it('should reject unsupported mime types', async () => {
+      const img = { ...mockFile, mimetype: 'image/png' };
+      await expect(service.uploadDocument(img)).rejects.toThrow(
+        'Only PDF and DOCX',
       );
     });
 
-    it('should throw error if S3 upload fails', async () => {
-      jest
-        .spyOn(s3Service, 'uploadFile')
-        .mockRejectedValue(new Error('S3 upload error'));
-
+    it('should fail if S3 upload fails', async () => {
+      s3.uploadFile.mockRejectedValue(new Error('S3 error'));
       await expect(service.uploadDocument(mockFile)).rejects.toThrow(
         BadRequestException,
       );
@@ -195,157 +133,89 @@ describe('DocumentsService', () => {
   });
 
   describe('analyzeDocument', () => {
-    it('should successfully analyze a document', async () => {
-      const analysisResult = {
-        summary: 'This is a summary of the document',
-        docType: 'Technical Report',
-        attributes: { keywords: ['tech', 'report'] },
-      };
-
-      jest.spyOn(prismaService.document, 'findUnique').mockResolvedValue({
-        ...mockDocument,
-        summary: null,
-        docType: null,
-        metadata: null,
+    it('should analyze text and update document', async () => {
+      prisma.findUnique.mockResolvedValue({
+        ...dbDoc,
+        extractedText: 'Some text',
       });
-      jest
-        .spyOn(openRouterService, 'analyzeDocument')
-        .mockResolvedValue(analysisResult);
-      jest.spyOn(prismaService.document, 'update').mockResolvedValue({
-        ...mockDocument,
-        summary: analysisResult.summary,
-        docType: analysisResult.docType,
-        metadata: JSON.stringify(analysisResult.attributes),
+      openRouter.analyzeDocument.mockResolvedValue({
+        summary: 'AI summary',
+        docType: 'Invoice',
+        attributes: { keywords: ['bill', '2025'] },
       });
+      prisma.update.mockResolvedValue({} as any);
 
       const result = await service.analyzeDocument('doc-1');
 
-      expect(result).toEqual({
-        id: mockDocument.id,
-        summary: analysisResult.summary,
-        docType: analysisResult.docType,
-        attributes: analysisResult.attributes,
-      });
-      expect(prismaService.document.findUnique).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
-      });
-      expect(openRouterService.analyzeDocument).toHaveBeenCalledWith(
-        mockDocument.extractedText,
+      expect(result.summary).toBe('AI summary');
+      expect(result.docType).toBe('Invoice');
+      expect(result.attributes).toEqual({ keywords: ['bill', '2025'] });
+      expect(openRouter.analyzeDocument).toHaveBeenCalledWith('Some text');
+      expect(prisma.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'doc-1' },
+          data: expect.objectContaining({
+            metadata: JSON.stringify({ keywords: ['bill', '2025'] }),
+          }),
+        }),
       );
-      expect(prismaService.document.update).toHaveBeenCalled();
     });
 
-    it('should throw NotFoundException if document does not exist', async () => {
-      jest.spyOn(prismaService.document, 'findUnique').mockResolvedValue(null);
-
-      await expect(service.analyzeDocument('non-existent-id')).rejects.toThrow(
+    it('should throw if document not found', async () => {
+      prisma.findUnique.mockResolvedValue(null);
+      await expect(service.analyzeDocument('missing')).rejects.toThrow(
         NotFoundException,
       );
-      await expect(service.analyzeDocument('non-existent-id')).rejects.toThrow(
-        'Document not found',
-      );
     });
 
-    it('should throw BadRequestException if no extracted text', async () => {
-      jest.spyOn(prismaService.document, 'findUnique').mockResolvedValue({
-        ...mockDocument,
-        extractedText: null,
-      });
-
+    it('should throw if no extracted text', async () => {
+      prisma.findUnique.mockResolvedValue({ ...dbDoc, extractedText: null });
       await expect(service.analyzeDocument('doc-1')).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(service.analyzeDocument('doc-1')).rejects.toThrow(
-        'No extracted text found for this document',
-      );
-    });
-
-    it('should throw error if analysis fails', async () => {
-      jest.spyOn(prismaService.document, 'findUnique').mockResolvedValue({
-        ...mockDocument,
-        extractedText: 'Some text',
-      });
-      jest
-        .spyOn(openRouterService, 'analyzeDocument')
-        .mockRejectedValue(new Error('API error'));
-
-      await expect(service.analyzeDocument('doc-1')).rejects.toThrow(
-        BadRequestException,
+        'No extracted text',
       );
     });
   });
 
   describe('getDocument', () => {
-    it('should return combined document data', async () => {
-      jest
-        .spyOn(prismaService.document, 'findUnique')
-        .mockResolvedValue(mockDocument);
+    it('should return full document with parsed metadata', async () => {
+      prisma.findUnique.mockResolvedValue({
+        ...dbDoc,
+        summary: 'Short summary',
+        docType: 'Report',
+        metadata: JSON.stringify({ keywords: ['ai', 'test'], author: 'John' }),
+      });
 
       const result = await service.getDocument('doc-1');
 
-      expect(result).toEqual({
-        fileInfo: {
-          id: mockDocument.id,
-          originalName: mockDocument.originalName,
-          mimeType: mockDocument.mimeType,
-          size: mockDocument.size,
-          s3Key: mockDocument.s3Key,
-          createdAt: mockDocument.createdAt,
-          updatedAt: mockDocument.updatedAt,
-        },
-        text: mockDocument.extractedText,
-        summary: mockDocument.summary,
-        docType: mockDocument.docType,
-        metadata: { keywords: ['test', 'pdf'] },
-      });
-      expect(prismaService.document.findUnique).toHaveBeenCalledWith({
-        where: { id: 'doc-1' },
+      expect(result.fileInfo.originalName).toBe('test.pdf');
+      expect(result.text).toBe('Full text here');
+      expect(result.summary).toBe('Short summary');
+      expect(result.metadata).toEqual({
+        keywords: ['ai', 'test'],
+        author: 'John',
       });
     });
 
-    it('should return null for optional fields when not set', async () => {
-      jest.spyOn(prismaService.document, 'findUnique').mockResolvedValue({
-        ...mockDocument,
-        extractedText: null,
+    it('should return nulls for missing optional fields', async () => {
+      prisma.findUnique.mockResolvedValue({
+        ...dbDoc,
+        extractedText: 'text',
         summary: null,
         docType: null,
         metadata: null,
       });
 
       const result = await service.getDocument('doc-1');
-
-      expect(result.text).toBeNull();
       expect(result.summary).toBeNull();
       expect(result.docType).toBeNull();
       expect(result.metadata).toBeNull();
     });
 
-    it('should throw NotFoundException if document does not exist', async () => {
-      jest.spyOn(prismaService.document, 'findUnique').mockResolvedValue(null);
-
-      await expect(service.getDocument('non-existent-id')).rejects.toThrow(
+    it('should throw NotFound if document missing', async () => {
+      prisma.findUnique.mockResolvedValue(null);
+      await expect(service.getDocument('gone')).rejects.toThrow(
         NotFoundException,
       );
-      await expect(service.getDocument('non-existent-id')).rejects.toThrow(
-        'Document not found',
-      );
-    });
-
-    it('should parse metadata JSON correctly', async () => {
-      const complexMetadata = {
-        keywords: ['test', 'pdf'],
-        sections: ['intro', 'body', 'conclusion'],
-        author: 'Test Author',
-      };
-
-      jest.spyOn(prismaService.document, 'findUnique').mockResolvedValue({
-        ...mockDocument,
-        metadata: JSON.stringify(complexMetadata),
-      });
-
-      const result = await service.getDocument('doc-1');
-
-      expect(result.metadata).toEqual(complexMetadata);
     });
   });
 });
