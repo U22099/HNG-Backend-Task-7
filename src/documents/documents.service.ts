@@ -1,11 +1,13 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TextExtractionService } from './text-extraction.service';
 import { S3Service } from './s3.service';
 
 @Injectable()
 export class DocumentsService {
   constructor(
     private prisma: PrismaService,
+    private textExtractionService: TextExtractionService,
     private s3Service: S3Service,
   ) {}
 
@@ -29,12 +31,18 @@ export class DocumentsService {
       const { key } = await this.s3Service.uploadFile(file);
 
 
+      const extractedText = await this.textExtractionService.extractText(
+        file.buffer,
+        file.mimetype,
+      );
+
       const document = await this.prisma.document.create({
         data: {
           originalName: file.originalname,
           mimeType: file.mimetype,
           size: file.size,
           s3Key: key,
+          extractedText,
         },
       });
 

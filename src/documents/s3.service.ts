@@ -14,13 +14,22 @@ export class S3Service {
   private bucketName: string;
 
   constructor(private configService: ConfigService) {
-    this.bucketName = this.configService.get<string>('S3_BUCKET_NAME', 'documents');
-    
+    this.bucketName = this.configService.get<string>(
+      'S3_BUCKET_NAME',
+      'documents',
+    );
+
     this.s3Client = new S3Client({
       region: this.configService.get<string>('AWS_REGION', 'us-east-1'),
       credentials: {
-        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID', 'minioadmin'),
-        secretAccessKey: this.configService.get<string>('AWS_SECRET_ACCESS_KEY', 'minioadmin'),
+        accessKeyId: this.configService.get<string>(
+          'AWS_ACCESS_KEY_ID',
+          'minioadmin',
+        ),
+        secretAccessKey: this.configService.get<string>(
+          'AWS_SECRET_ACCESS_KEY',
+          'minioadmin',
+        ),
       },
       endpoint: this.configService.get<string>('S3_ENDPOINT'),
       forcePathStyle: true,
