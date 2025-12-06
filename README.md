@@ -1,98 +1,303 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# AI Document Summarization + Metadata Extraction Service
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A NestJS-based backend that accepts PDF or DOCX files, extracts text, sends it to an LLM on OpenRouter, and returns a concise summary, detected document type, and extracted metadata.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Features
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- **File Upload**: Accept PDF and DOCX files (max 5MB)
+- **Text Extraction**: Automatically extract text from uploaded documents
+- **S3/Minio Storage**: Store raw files in S3-compatible storage
+- **AI Analysis**: Send extracted text to OpenRouter LLM API
+- **Metadata Extraction**: Detect document types and extract key information
+- **Database Storage**: Save all data using Prisma ORM
 
-## Project setup
+---
 
+## Quick Start
+
+### Prerequisites
+- Docker Desktop (Windows/Mac) or Docker Engine + Docker Compose (Linux)
+- Node.js 18+
+
+### 1. Start Minio (S3) with Docker Compose
+
+**Windows:**
+```cmd
+scripts\setup-dev.bat
+```
+**macOS/Linux:**
 ```bash
-$ npm install
+bash scripts/setup-dev.sh
+```
+Or manually:
+```bash
+docker-compose up -d
 ```
 
-## Compile and run the project
+Access Minio Console at [http://localhost:9001](http://localhost:9001)
+- Username: `minioadmin`
+- Password: `minioadmin`
 
+The bucket `documents` should be auto-created.
+
+### 2. Install Dependencies & Start Backend
 ```bash
-# development
-$ npm run start
+npm install
+npm run start:dev
+```
+API available at [http://localhost:3000](http://localhost:3000)
 
-# watch mode
-$ npm run start:dev
+---
 
-# production mode
-$ npm run start:prod
+## Environment Variables
+
+`.env` example:
+```env
+DATABASE_URL="file:./dev.db"
+S3_ENDPOINT=http://localhost:9000
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+S3_BUCKET_NAME=documents
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_MODEL=gpt-3.5-turbo
+PORT=3000
+NODE_ENV=development
 ```
 
-## Run tests
+---
 
-```bash
-# unit tests
-$ npm run test
+## API Endpoints
 
-# e2e tests
-$ npm run test:e2e
+### 1. Upload Document
+**POST** `/documents/upload`
+- Content-Type: `multipart/form-data`
+- Field name: `file`
+- Max size: 5MB
+- Supported: PDF, DOCX
 
-# test coverage
-$ npm run test:cov
+**Response:**
+```json
+{
+  "id": "uuid-of-document",
+  "originalName": "invoice.pdf",
+  "mimeType": "application/pdf",
+  "size": 125000,
+  "createdAt": "2025-12-06T10:00:00.000Z"
+}
 ```
 
-## Deployment
+### 2. Analyze Document
+**POST** `/documents/{id}/analyze`
+- `id`: Document ID from upload response
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+**Response:**
+```json
+{
+  "id": "uuid-of-document",
+  "summary": "This is an invoice from ABC Corp dated December 1, 2025 for $5,000.",
+  "docType": "invoice",
+  "attributes": {
+    "date": "December 1, 2025",
+    "sender": "ABC Corp",
+    "recipient": "Your Company",
+    "totalAmount": "$5,000",
+    "subject": "Invoice #12345"
+  }
+}
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### 3. Get Document
+**GET** `/documents/{id}`
+- `id`: Document ID from upload response
 
-## Resources
+**Response:**
+```json
+{
+  "id": "uuid-of-document",
+  "originalName": "invoice.pdf",
+  "mimeType": "application/pdf",
+  "size": 125000,
+  "extractedText": "Invoice #12345...",
+  "summary": "This is an invoice from ABC Corp...",
+  "docType": "invoice",
+  "metadata": {
+    "date": "December 1, 2025",
+    "sender": "ABC Corp",
+    "recipient": "Your Company",
+    "totalAmount": "$5,000",
+    "subject": "Invoice #12345"
+  },
+  "createdAt": "2025-12-06T10:00:00.000Z",
+  "updatedAt": "2025-12-06T10:05:00.000Z"
+}
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+---
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Testing the Workflow
 
-## Support
+### Upload a PDF/DOCX
+```bash
+curl -X POST http://localhost:3000/documents/upload \
+  -F "file=@/path/to/document.pdf"
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Analyze the Document
+```bash
+curl -X POST http://localhost:3000/documents/<id>/analyze
+```
 
-## Stay in touch
+### Get Full Document Data
+```bash
+curl http://localhost:3000/documents/<id>
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+---
 
-## License
+## Docker & Minio Management
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+### View Running Containers
+```bash
+docker-compose ps
+```
+### View Minio Logs
+```bash
+docker-compose logs -f minio
+```
+### Stop Containers
+**Windows:**
+```cmd
+scripts\teardown-dev.bat
+```
+**macOS/Linux:**
+```bash
+docker-compose down
+```
+### Clean Up Everything (including volumes)
+```bash
+docker-compose down -v
+```
+
+---
+
+## Troubleshooting
+
+- **Minio not starting:** Ensure ports 9000/9001 are free, Docker is running, view logs with `docker-compose logs minio`.
+- **Connection refused:** Wait 5-10 seconds after starting Minio, check `S3_ENDPOINT` in `.env`.
+- **Bucket doesn't exist:** Bucket is auto-created by `minio-init` service. If missing, run `docker-compose up -d minio-init`.
+- **Port Already in Use:** Change ports in `docker-compose.yml` and update `.env`.
+- **File size must not exceed 5MB:** Compress or split the document.
+- **Only PDF and DOCX files are supported:** Ensure correct MIME type.
+- **Failed to connect to S3:** Check endpoint and credentials.
+- **Failed to analyze document with LLM:** Check OpenRouter API key and credits.
+- **No extracted text found:** Try a different document.
+
+---
+
+## Project Structure
+
+```
+src/
+├── documents/
+│   ├── documents.controller.ts     # API endpoints
+│   ├── documents.service.ts        # Main business logic
+│   ├── documents.module.ts         # Module definition
+│   ├── s3.service.ts              # S3/Minio storage service
+│   ├── text-extraction.service.ts # PDF/DOCX text extraction
+│   └── openrouter.service.ts      # LLM API integration
+├── prisma/
+│   └── prisma.service.ts          # Prisma client service
+├── app.module.ts                   # Main application module
+├── app.controller.ts
+├── app.service.ts
+└── main.ts
+prisma/
+└── schema.prisma                   # Database schema
+```
+
+---
+
+## Database Schema
+
+```prisma
+model Document {
+  id            String   @id @default(uuid())
+  originalName  String
+  mimeType      String
+  size          Int
+  s3Key         String
+  extractedText String?
+  summary       String?
+  docType       String?
+  metadata      String?  // JSON stored as string
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+```
+
+---
+
+## Supported Document Types
+
+- **invoice**: Invoices and billing documents
+- **cv**: Curriculum Vitae / Resume
+- **report**: Reports and analysis documents
+- **letter**: Letters and correspondence
+- **contract**: Contracts and agreements
+- **email**: Email messages
+- **other**: Unclassified documents
+
+---
+
+## Extracted Metadata
+
+Depending on document type, the following metadata is extracted:
+```json
+{
+  "date": "Document date if available",
+  "sender": "Author/sender of document",
+  "recipient": "Intended recipient",
+  "totalAmount": "Financial amount if applicable",
+  "subject": "Document subject or title"
+}
+```
+
+---
+
+## Error Handling
+
+API returns appropriate HTTP status codes and error messages.
+
+---
+
+## Performance Considerations
+
+- **File Size Limit:** 5MB maximum
+- **Text Extraction:** Limited to first 8000 characters for LLM
+- **Concurrent Requests:** Supported
+- **Database:** SQLite for dev; use PostgreSQL for prod
+
+---
+
+## Technologies Used
+
+- **NestJS**
+- **Prisma ORM**
+- **AWS SDK v3**
+- **pdf-parse**
+- **mammoth**
+- **axios**
+- **TypeScript**
+
+---
+
+## Next Steps
+
+1. Start Docker: `scripts\setup-dev.bat`
+2. Install dependencies: `npm install`
+3. Start the app: `npm run start:dev`
+4. Test endpoints (see above)
+
