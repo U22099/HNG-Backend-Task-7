@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Param,
   UseInterceptors,
   UploadedFile,
@@ -26,5 +27,10 @@ export class DocumentsController {
   @Post(':id/analyze')
   async analyzeDocument(@Param('id') id: string) {
     return this.documentsService.analyzeDocument(id);
+  }
+
+  @Get(':id')
+  async getDocument(@Param('id') id: string) {
+    return this.documentsService.getDocument(id);
   }
 }

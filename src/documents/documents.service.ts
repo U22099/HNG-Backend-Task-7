@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OpenRouterService } from './openrouter.service';
 import { TextExtractionService } from './text-extraction.service';
@@ -24,9 +28,7 @@ export class DocumentsService {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     ];
     if (!allowedMimes.includes(file.mimetype)) {
-      throw new BadRequestException(
-        'Only PDF and DOCX files are supported',
-      );
+      throw new BadRequestException('Only PDF and DOCX files are supported');
     }
 
     try {
@@ -55,9 +57,7 @@ export class DocumentsService {
         createdAt: document.createdAt,
       };
     } catch (error) {
-      throw new BadRequestException(
-        `Upload failed: ${error.message}`,
-      );
+      throw new BadRequestException(`Upload failed: ${error.message}`);
     }
   }
 
@@ -97,9 +97,35 @@ export class DocumentsService {
         attributes: analysis.attributes,
       };
     } catch (error) {
-      throw new BadRequestException(
-        `Analysis failed: ${error.message}`,
-      );
+      throw new BadRequestException(`Analysis failed: ${error.message}`);
     }
+  }
+
+  async getDocument(id: string) {
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    const metadata = document.metadata ? JSON.parse(document.metadata) : null;
+
+    return {
+      fileInfo: {
+        id: document.id,
+        originalName: document.originalName,
+        mimeType: document.mimeType,
+        size: document.size,
+        s3Key: document.s3Key,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
+      },
+      text: document.extractedText || null,
+      summary: document.summary || null,
+      docType: document.docType || null,
+      metadata: metadata,
+    };
   }
 }
